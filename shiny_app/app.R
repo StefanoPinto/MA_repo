@@ -6,7 +6,7 @@ library(glue)
 
 
 
-setwd("C:/Users/Stef/Desktop/Uni/CU/semester_4/ma/shiny_app/stef_ma")
+#setwd("C:/Users/Stef/Desktop/Uni/CU/semester_4/ma/shiny_app/stef_ma")
 
 dataset <- read_csv("metrics.csv")
 theme_set(theme_bw(base_size = 18))
