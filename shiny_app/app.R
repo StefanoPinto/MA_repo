@@ -3,12 +3,17 @@ library(shinydashboard)
 library(shinyWidgets)
 library(tidyverse)
 library(glue)
-
-
+library(DT)
 
 #setwd("C:/Users/Stef/Desktop/Uni/CU/semester_4/ma/shiny_app/stef_ma")
 
 dataset <- read_csv("metrics.csv")
+
+dataset <- dataset |> mutate(across(
+  .cols = non_neutrality : moderate_size_parity,
+  .fns = \(var) round(var, 4)))
+
+
 theme_set(theme_bw(base_size = 18))
 
 
@@ -23,10 +28,13 @@ header <- dashboardHeader(
 
 sidebar <- dashboardSidebar(
   sidebarMenu(
-    menuItem("Main results", tabName = "main_country",
-             menuSubItem("Overview", tabName = "main_charts")),
-    menuItem("Secondary results", tabName = "secondary",
-             menuSubItem("Secondary charts", tabName = "secondary_charts"))
+    menuItem("Exploratory tools", tabName = "main_country",
+             menuSubItem("Overview + trend", tabName = "main_charts"),
+             menuSubItem("Ranking", tabName = "ranking"),
+             menuSubItem("Country-focus", tabName = "country_focus")),
+    
+    menuItem("Findings", tabName = "secondary",
+             menuSubItem("FINDING 1", tabName = "secondary_charts"))
   )
 )
 
@@ -42,6 +50,69 @@ body <- dashboardBody(
     
   ")),
   tabItems(
+    tabItem("country_focus",
+            fluidRow(
+              box(
+                status = "info", solidHeader = TRUE, width = 4,
+                selectInput(
+                  inputId = "country_id_300",
+                  label = "Select Country:",
+                  choices = unique(dataset$country),
+                  multiple = FALSE,
+                  selected = "Germany"
+                )
+              ),
+              box(
+                status = "info", solidHeader = TRUE, width = 4,
+                selectInput(
+                  inputId = "year_id_300",
+                  label = "Select Year:",
+                  choices = unique(dataset$essround),
+                  multiple = FALSE,
+                  selected = "2020"
+                )
+              ),
+              box(
+                status = "info", solidHeader = TRUE, width = 4,
+                selectInput(
+                  inputId = "variable_id_300",
+                  label = "Select variable:",
+                  choices = unique(dataset$variable),
+                  multiple = FALSE,
+                  selected = "imbgeco"
+                )
+              )
+            ),
+            fluidRow(
+              box(
+                plotOutput("plot_country_specific"),
+                width = "100%"
+              )
+            )),
+    tabItem("ranking",
+            fluidRow(box(pickerInput(
+              inputId = "Id088",
+              label = "Year", 
+              choices = unique(dataset$essround),
+              options = pickerOptions(container = "body", 
+                                      style = "btn-outline-primary"),
+              width = "100%"
+            ),
+            pickerInput(
+              inputId = "Id089",
+              label = "Variable", 
+              choices = unique(dataset$variable),
+              options = pickerOptions(container = "body", 
+                                      style = "btn-outline-primary"),
+              width = "100%"
+            ),status = "info", solidHeader = T)),
+            mainPanel(
+              DT::dataTableOutput("mytable"), width = 12
+              
+            )
+            
+            
+            ),
     tabItem(
       "main_charts",
       " ",
@@ -108,7 +179,7 @@ body <- dashboardBody(
     ),
     tabItem(
       "secondary_charts",
-      "Secondary results go here",
+      "Static plots of the main results go here",
       fluidRow(
         box("Dummy", width = 12, height = 400)
       ),
@@ -192,8 +263,6 @@ server <- function(input, output){
     }
   )
   
-  
-  
   plot_generator_overview <- reactive({
     dataset |> 
       select(-country) |> 
@@ -210,6 +279,53 @@ server <- function(input, output){
       geom_line(lwd = 1) +
       labs(x = "Year", y = glue("Mean {clean_string(input$metrics)}"), title = "ESS-wide mean values") +
       scale_color_brewer(palette = "Set1")
+  })
+  
+  
+  plot_generator_country_specific <- reactive({
+    
+    country_df <- dataset |> 
+      filter(
+        country == input$country_id_300,
+        essround == input$year_id_300,
+        variable == input$variable_id_300) |> 
+      select(non_neutrality : moderate_size_parity) |> 
+      gather(metric, value) |> 
+      mutate(scope = "country")
+    
+    
+    europe_means <- dataset |> 
+      filter(
+        essround == input$year_id_300,
+        variable == input$variable_id_300) |> 
+      select(non_neutrality : moderate_size_parity) |> 
+      gather(metric, value) |> 
+      group_by(metric) |> 
+      summarize(value = mean(value, na.rm = T)) |> 
+      mutate(scope = "europe_wide_mean")
+    
+    merged_df <- bind_rows(country_df, europe_means) 
+    
+    ggplot(merged_df, aes(metric, value)) +
+      geom_col(aes(fill = scope), position = "dodge") +
+      coord_flip() +
+      labs(
+        x = "",
+        y = "Value",
+        title = glue("{input$country_id_300} - {input$year_id_300} - {input$variable_id_300}")) +
+      scale_x_discrete(labels = c(
+        "Average deviation from neutrality",
+        "Dispersion",
+        "Moderate divergence",
+        "Moderate group consensus",
+        "Moderate size parity",
+        "Non-neutrality")) +
+      theme(
+        legend.position = "bottom",
+        plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5)
+      ) +
+      scale_fill_brewer(palette = "Set1", "", labels = c("Country","Europe-wide average"))
   })
   
   
@@ -247,6 +363,12 @@ server <- function(input, output){
     }
   })
   
+  
+  output$plot_country_specific <- renderPlot({plot_generator_country_specific()})
+  
+  output$mytable <- DT::renderDataTable(dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality : moderate_size_parity)) ,
+                                        options = list(scrollX = TRUE),
+                                        rownames = FALSE)
   
   output$metric_description <- renderUI({markdown(metrics_description())})
   output$latex_output <- renderUI({withMathJax(metrics_formula())})
