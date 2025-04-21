@@ -4,17 +4,72 @@ library(shinyWidgets)
 library(tidyverse)
 library(glue)
 library(DT)
+library(naniar)
+library(countrycode)
 
 #setwd("C:/Users/Stef/Desktop/Uni/CU/semester_4/ma/shiny_app/stef_ma")
+theme_set(theme_bw(base_size = 20))
 
-dataset <- read_csv("metrics.csv")
+select_and_clean <- function(dataset) {
+  dataset_clean <- dataset |> 
+    select(essround, cntry, imbgeco, imueclt, imwbcnt, anweight, pspwght, pweight) |> 
+    replace_with_na(replace = list(
+      imbgeco = c(77, 88, 99),
+      imueclt = c(77, 88, 99),
+      imwbcnt = c(77, 88, 99))) |> 
+    mutate(essround = 2000 + 2 * essround) |> 
+    na.omit()
+  
+  return(dataset_clean)
+}
 
-dataset <- dataset |> mutate(across(
+original_data <- read_csv("data2.csv")
+
+original_data <- select_and_clean(original_data)
+
+original_data <- original_data |> 
+  rename(country = cntry)
+
+original_data <- original_data |> 
+  mutate(country = countrycode(sourcevar = country,
+                             origin = "iso2c",
+                             destination = "country.name.en"),
+         .keep = "unused")
+
+original_data[which(is.na(original_data$country)), "country"] <- "Kosovo"
+
+original_data <- original_data |> 
+  mutate(anweight = pspwght * pweight)
+
+weighted_ratios <- function(dataset, variable) {
+  
+  if(nrow(dataset) == 0) {
+    return(NA)
+  }
+  # calculate weighted ratios
+  weighted_counts <- dataset %>%
+    group_by({{ variable }}) %>%
+    summarise(weighted_n = sum(anweight)) 
+  
+  available_rounds <- pull(unique(weighted_counts[,1]))
+  
+  n_total_weighted <- sum(weighted_counts)
+  
+  weighted_ratios <- weighted_counts$weighted_n / n_total_weighted
+  names(weighted_ratios) <- available_rounds
+  
+  # Returns a vector of n ratios / probabilities, one for each available round
+  return(weighted_ratios)
+}
+
+
+
+metrics_dataset <- read_csv("metrics.csv")
+
+metrics_dataset <- metrics_dataset |> mutate(across(
   .cols = non_neutrality : moderate_size_parity,
   .fns = \(var) round(var, 4)))
 
-
-theme_set(theme_bw(base_size = 18))
 
 
 header <- dashboardHeader(
@@ -40,14 +95,13 @@ sidebar <- dashboardSidebar(
 
 body <- dashboardBody(
   tags$style(HTML("
-  .box.box-solid.box-info>.box-header {
-    background-color: #00204d !important};
-  
-  .skin-blue .main-header .logo {
-    background-color: #00204d };
-    
-  }
-    
+    .box.box-solid.box-info>.box-header {
+      background-color: #00204d !important;
+    }
+
+    .skin-blue .main-header .logo {
+      background-color: #00204d;
+    }
   ")),
   tabItems(
     tabItem("country_focus",
@@ -57,7 +111,7 @@ body <- dashboardBody(
                 selectInput(
                   inputId = "country_id_300",
                   label = "Select Country:",
-                  choices = unique(dataset$country),
+                  choices = unique(metrics_dataset$country),
                   multiple = FALSE,
                   selected = "Germany"
                 )
@@ -67,7 +121,7 @@ body <- dashboardBody(
                 selectInput(
                   inputId = "year_id_300",
                   label = "Select Year:",
-                  choices = unique(dataset$essround),
+                  choices = unique(metrics_dataset$essround),
                   multiple = FALSE,
                   selected = "2020"
                 )
@@ -77,7 +131,7 @@ body <- dashboardBody(
                 selectInput(
                   inputId = "variable_id_300",
                   label = "Select variable:",
-                  choices = unique(dataset$variable),
+                  choices = unique(metrics_dataset$variable),
                   multiple = FALSE,
                   selected = "imbgeco"
                 )
@@ -86,46 +140,51 @@ body <- dashboardBody(
             fluidRow(
               box(
                 plotOutput("plot_country_specific"),
-                width = "100%"
-              )
+                width = 12
+              ),
+              box(
+                plotOutput("opinions_hist"),
+                width = 12)
             )),
     tabItem("ranking",
-            fluidRow(box(pickerInput(
-              inputId = "Id088",
-              label = "Year", 
-              choices = unique(dataset$essround),
-              options = pickerOptions(container = "body", 
-                                      style = "btn-outline-primary"),
-              width = "100%"
+            fluidRow(
+              box(
+                pickerInput(
+                  inputId = "Id088",
+                  label = "Select year",
+                  choices = unique(metrics_dataset$essround),
+                  options = pickerOptions(container = "body",
+                                          style = "btn-outline-primary"),
+                  width = "100%"
+                ),
+                pickerInput(
+                  inputId = "Id089",
+                  label = "Select variable",
+                  choices = unique(metrics_dataset$variable),
+                  options = pickerOptions(container = "body",
+                                          style = "btn-outline-primary"),
+                  width = "100%"
+                ),
+                status = "info", solidHeader = TRUE
+              )
             ),
-            pickerInput(
-              inputId = "Id089",
-              label = "Variable", 
-              choices = unique(dataset$variable),
-              options = pickerOptions(container = "body", 
-                                      style = "btn-outline-primary"),
-              width = "100%"
-            ),status = "info", solidHeader = T)),
             mainPanel(
               DT::dataTableOutput("mytable"), width = 12
-              
             )
-            
-            
-            ),
+    ),
     tabItem(
       "main_charts",
       " ",
       fluidRow(
         box(
           width = "100%",
-          plotOutput("p"),
+          plotOutput("p")
         )
       ),
       fluidRow(switchInput(
         label = "Group by country",
         inputId = "switch",
-        onStatus = "success", 
+        onStatus = "success",
         offStatus = "danger",
         value = FALSE,
         size = "mini",
@@ -135,44 +194,45 @@ body <- dashboardBody(
         uiOutput("countries")
       ),
       fluidRow(
-        box(title = "Metric", status = "info", solidHeader = T,
-          selectInput(
-            "metrics",
-            " ",
-            choices = c(
-              "non_neutrality",
-              "avg_deviation_from_neutrality",
-              "dispersion",
-              "moderate_divergence",
-              "moderate_group_consensus",
-              "moderate_size_parity"),
-            multiple = FALSE,
-            selected = "non_neutrality"),
-          
-          uiOutput(outputId = "metric_description"),
-          uiOutput("latex_output"),width = 8
+        box(title = "Metric", status = "info", solidHeader = TRUE,
+            selectInput(
+              "metrics",
+              " ",
+              choices = c(
+                "non_neutrality",
+                "avg_deviation_from_neutrality",
+                "dispersion",
+                "moderate_divergence",
+                "moderate_group_consensus",
+                "moderate_size_parity"),
+              multiple = FALSE,
+              selected = "non_neutrality"),
+            
+            uiOutput(outputId = "metric_description"),
+            uiOutput("latex_output"),width = 8
         ),
-        box(title = "Variable(s)", status = "info", solidHeader = T,
-          width = 4,
-          checkboxGroupButtons(
-            inputId = "variable",
-            label = " ",
-            choices = unique(dataset$variable),
-            selected = "imbgeco"),
-          uiOutput(
-            outputId = "variable_description")),
+        box(title = "Variable(s)", status = "info", solidHeader = TRUE,
+            width = 4,
+            checkboxGroupButtons(
+              inputId = "variable",
+              label = " ",
+              choices = unique(metrics_dataset$variable),
+              selected = "imbgeco"),
+            uiOutput(
+              outputId = "variable_description")),
         
-          box(title = "Year(s)", status = "info", solidHeader = T,
+        
+        box(title = "Year(s)", status = "info", solidHeader = TRUE,
             width = 4,
             sliderInput(
-            "year",
-            " ",
-            min = as.integer(min(dataset$essround)),
-            max = as.integer(max(dataset$essround)),
-            value = c(as.integer(min(dataset$essround)), as.integer(max(dataset$essround))),
-            step = 2,
-            sep = ""
-          )
+              "year",
+              " ",
+              min = as.integer(min(metrics_dataset$essround)),
+              max = as.integer(max(metrics_dataset$essround)),
+              value = c(as.integer(min(metrics_dataset$essround)), as.integer(max(metrics_dataset$essround))),
+              step = 2,
+              sep = ""
+            )
         )
       ),
       
@@ -220,9 +280,9 @@ server <- function(input, output){
             multiInput(
               inputId = "countries",
               label = " ",
-              choices = sort(unique(dataset$country)),
-              choiceNames = sort(unique(dataset$country)),
-              choiceValues = sort(unique(dataset$country)),
+              choices = sort(unique(metrics_dataset$country)),
+              choiceNames = sort(unique(metrics_dataset$country)),
+              choiceValues = sort(unique(metrics_dataset$country)),
               selected = "Germany"
           )))})
     }
@@ -244,7 +304,7 @@ server <- function(input, output){
   }
   
   plot_generator_countries <- reactive({
-    dataset |> 
+    metrics_dataset |> 
       pivot_longer(
         cols = non_neutrality:moderate_size_parity,
         names_to = "metric_name",
@@ -264,7 +324,7 @@ server <- function(input, output){
   )
   
   plot_generator_overview <- reactive({
-    dataset |> 
+    metrics_dataset |> 
       select(-country) |> 
       pivot_longer(cols = non_neutrality:moderate_size_parity,
                    names_to = "metric", values_to = "value") |>
@@ -284,7 +344,7 @@ server <- function(input, output){
   
   plot_generator_country_specific <- reactive({
     
-    country_df <- dataset |> 
+    country_df <- metrics_dataset |> 
       filter(
         country == input$country_id_300,
         essround == input$year_id_300,
@@ -294,7 +354,7 @@ server <- function(input, output){
       mutate(scope = "country")
     
     
-    europe_means <- dataset |> 
+    europe_means <- metrics_dataset |> 
       filter(
         essround == input$year_id_300,
         variable == input$variable_id_300) |> 
@@ -312,7 +372,8 @@ server <- function(input, output){
       labs(
         x = "",
         y = "Value",
-        title = glue("{input$country_id_300} - {input$year_id_300} - {input$variable_id_300}")) +
+        title = glue("{input$country_id_300} - {input$year_id_300} - {input$variable_id_300}"),
+        caption = "Note: If no country bars (green) are displayed, it means that for that particular year-country combination, no data is available") +
       scale_x_discrete(labels = c(
         "Average deviation from neutrality",
         "Dispersion",
@@ -325,8 +386,31 @@ server <- function(input, output){
         plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5)
       ) +
-      scale_fill_brewer(palette = "Set1", "", labels = c("Country","Europe-wide average"))
+      scale_fill_brewer(palette = "Set2", "", labels = c("Country","Europe-wide average\n(for that year)"))
   })
+  
+  
+  
+  plot_generator_country_specific_hist <- reactive({
+    
+    original_data_sub <- original_data |> 
+      filter(
+        country == input$country_id_300,
+        essround == input$year_id_300)
+    
+    ratios <- weighted_ratios(original_data_sub, !!sym(input$variable_id_300))
+    df <- tibble(opinion_value = as.integer(names(ratios)), ratio = ratios)
+    ggplot(df, aes(opinion_value, ratio)) +
+      geom_col(fill = "steelblue") +
+      scale_x_continuous(breaks = 0:10) +
+      scale_y_continuous(labels = scales::percent) + 
+      labs(x = "Likert-scale value", y = "",
+           caption = "Note: If no bars (steelblue) are displayed, it means that for that particular year-country combination, no data is available")
+    }
+  )
+  
+  
+  output$opinions_hist <- renderPlot({plot_generator_country_specific_hist()})
   
   
   metrics_formula <- reactive({
@@ -366,7 +450,7 @@ server <- function(input, output){
   
   output$plot_country_specific <- renderPlot({plot_generator_country_specific()})
   
-  output$mytable <- DT::renderDataTable(dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality : moderate_size_parity)) ,
+  output$mytable <- DT::renderDataTable(metrics_dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality : moderate_size_parity)) ,
                                         options = list(scrollX = TRUE),
                                         rownames = FALSE)
   
@@ -375,4 +459,8 @@ server <- function(input, output){
   output$variable_description <- renderUI({markdown(variable_description())})
 }
 shinyApp(ui, server)
+
+
+
+
 
