@@ -24,12 +24,9 @@ select_and_clean <- function(dataset) {
 }
 
 original_data <- read_csv("data2.csv")
-
 original_data <- select_and_clean(original_data)
-
 original_data <- original_data |> 
   rename(country = cntry)
-
 original_data <- original_data |> 
   mutate(country = countrycode(sourcevar = country,
                              origin = "iso2c",
@@ -61,7 +58,6 @@ weighted_ratios <- function(dataset, variable) {
   # Returns a vector of n ratios / probabilities, one for each available round
   return(weighted_ratios)
 }
-
 
 
 metrics_dataset <- read_csv("metrics.csv")
