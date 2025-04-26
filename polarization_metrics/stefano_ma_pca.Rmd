@@ -325,5 +325,3 @@ write_csv(slopes_df, "pca_metric_slope_variance.csv")
 
 
 
-
-

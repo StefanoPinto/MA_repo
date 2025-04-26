@@ -62,10 +62,19 @@ weighted_ratios <- function(dataset, variable) {
 
 metrics_dataset <- read_csv("metrics.csv")
 
-metrics_dataset <- metrics_dataset |> mutate(across(
-  .cols = non_neutrality : moderate_size_parity,
-  .fns = \(var) round(var, 4)))
+pca_metric_dataset <- read_csv("pca_metric_loadings_variance.csv")
+pca_slope_dataset <- read_csv("pca_metric_slope_variance.csv")
 
+
+metrics_dataset <- metrics_dataset |> 
+  left_join(pca_metric_dataset) |> 
+  left_join(pca_slope_dataset) |> 
+  select(-c(loading_pc1_imbgeco, loading_pc1_imueclt, loading_pc1_imwbcnt))
+
+
+metrics_dataset <- metrics_dataset |> mutate(across(
+  .cols = non_neutrality : slope_expl_var_pc1,
+  .fns = \(var) round(var, 4)))
 
 
 header <- dashboardHeader(
@@ -200,7 +209,8 @@ body <- dashboardBody(
                 "dispersion",
                 "moderate_divergence",
                 "moderate_group_consensus",
-                "moderate_size_parity"),
+                "moderate_size_parity",
+                "expl_var_pc1"),
               multiple = FALSE,
               selected = "non_neutrality"),
             
@@ -261,7 +271,8 @@ server <- function(input, output){
       input$metrics == "dispersion" ~ "**Dispersion**: Is measured by its mean absolute deviation. This is a good basic measure of polarization for typical survey response distributions on bounded scales (0-10 in the ESS). The maximum dispersion is when half of the individuals are on both extremes while the minimal dispersion appears for any consensus with all individuals having the same response. This measure is exactly as proposed by Bramson et al. (2016). For public opinion on immigration increasing dispersion means that individuals deviate more from the average attitude. Most polarized would be a society divided into two equally sized groups of people advocating total acceptance and total objection.",
       input$metrics == "moderate_divergence" ~ "**Moderate divergence**: Assessed by the absolute difference of group means of the moderate accepting group and the moderate opposing group, as described in Bramson et al. (2016). Lorenz (2017) analyzed the typical characteristics of ESS opinion distributions and pointed to the existence of five endogenous groups in ESS opinion distributions: The extreme left, the moderate left, the neutrals, the moderate right, and the extreme right. Per item, we operationalize similar groups, consisting of the 'full-on acceptors' (individuals with opinion 0), the 'moderate accepting group' (individuals with opinion 1-4), the 'neutrals' (individuals with opinion 5, the 'moderate opposing group' (individuals with opinion 6-9), and the 'full-on opponents' (individuals with opinion 10).",
       input$metrics == "moderate_group_consensus" ~ "**Moderate group conensus**: Based on the mean absolute deviation (MAD) of the two moderate groups. In contrast to dispersion, which we assess as MAD of the entire opinion distribution, the measurement of group consensus increases with decreasing dispersion in the two groups.",
-      input$metrics == "moderate_size_parity" ~ "**Moderate size parity**: The relative size of the smaller group of moderates compared to the larger group. Hereby the mass of the smaller group is divided by the mass of the larger group. A size parity of 1 indicates equal size of moderate groups and thereby the maximum possible polarization in the sense of parity. This is a simplified version of the size parity measure proposed by Bramson et al. (2016)."
+      input$metrics == "moderate_size_parity" ~ "**Moderate size parity**: The relative size of the smaller group of moderates compared to the larger group. Hereby the mass of the smaller group is divided by the mass of the larger group. A size parity of 1 indicates equal size of moderate groups and thereby the maximum possible polarization in the sense of parity. This is a simplified version of the size parity measure proposed by Bramson et al. (2016).",
+      input$metrics == "expl_var_pc1" ~ "**Explained variance of PC1**: The explained variance of the first principal component derived from a Principal Component Analysis (PCA) using **imbgeco**, **imueclt** & **imwbcnt**"
     )
   }
 )
@@ -302,7 +313,7 @@ server <- function(input, output){
   plot_generator_countries <- reactive({
     metrics_dataset |> 
       pivot_longer(
-        cols = non_neutrality:moderate_size_parity,
+        cols = non_neutrality:expl_var_pc1,
         names_to = "metric_name",
         values_to = "metric_value") |> 
       filter(
@@ -314,7 +325,11 @@ server <- function(input, output){
       facet_wrap(~country) +
       geom_point(size = 3) +
       geom_line(lwd = 1) +
-      labs(x = "Year", y = glue("{clean_string(input$metrics)}"), title = "Country-level values") +
+      labs(
+        x = "Year",
+        y = glue("{clean_string(input$metrics)}"),
+        title = "Country-level values",
+        caption = "Note that if the explained variance of PC 1 is picked as metric, the values are perfectly overlapping. This make sense, as this metric is derived from all three variables in unison.") +
       scale_color_brewer(palette = "Set1") 
     }
   )
@@ -322,7 +337,7 @@ server <- function(input, output){
   plot_generator_overview <- reactive({
     metrics_dataset |> 
       select(-country) |> 
-      pivot_longer(cols = non_neutrality:moderate_size_parity,
+      pivot_longer(cols = non_neutrality:expl_var_pc1,
                    names_to = "metric", values_to = "value") |>
       filter(
         metric == input$metrics,
@@ -333,7 +348,11 @@ server <- function(input, output){
       ggplot(aes(essround, mean_value, col = variable)) +
       geom_point(size = 3) +
       geom_line(lwd = 1) +
-      labs(x = "Year", y = glue("Mean {clean_string(input$metrics)}"), title = "ESS-wide mean values") +
+      labs(
+        x = "Year",
+        y = glue("Mean {clean_string(input$metrics)}"),
+        title = "ESS-wide mean values",
+        caption = "Note that if the explained variance of PC 1 is picked as metric, the values are perfectly overlapping. This make sense, as this metric is derived from all three variables in unison.") +
       scale_color_brewer(palette = "Set1")
   })
   
@@ -345,7 +364,7 @@ server <- function(input, output){
         country == input$country_id_300,
         essround == input$year_id_300,
         variable == input$variable_id_300) |> 
-      select(non_neutrality : moderate_size_parity) |> 
+      select(non_neutrality : expl_var_pc1) |> 
       gather(metric, value) |> 
       mutate(scope = "country")
     
@@ -354,7 +373,7 @@ server <- function(input, output){
       filter(
         essround == input$year_id_300,
         variable == input$variable_id_300) |> 
-      select(non_neutrality : moderate_size_parity) |> 
+      select(non_neutrality : expl_var_pc1) |> 
       gather(metric, value) |> 
       group_by(metric) |> 
       summarize(value = mean(value, na.rm = T)) |> 
@@ -369,10 +388,11 @@ server <- function(input, output){
         x = "",
         y = "Value",
         title = glue("{input$country_id_300} - {input$year_id_300} - {input$variable_id_300}"),
-        caption = "Note: If no country bars (green) are displayed, it means that for that particular year-country combination, no data is available") +
+        caption = "Note: If no country bars (green) are displayed, it means that for that particular year-country combination, no data is available\n Also, note that the value of the explained variance of PC1 does not change when the variable is changed. This make sense, as that value is derived from all three variables in unison.") +
       scale_x_discrete(labels = c(
         "Average deviation from neutrality",
         "Dispersion",
+        "Explained variance PC1",
         "Moderate divergence",
         "Moderate group consensus",
         "Moderate size parity",
@@ -428,7 +448,8 @@ server <- function(input, output){
     MAD_{m[accept]} = \\sum_{i=1}^{4} \\frac{p_j \\cdot |i-\\mu_{m[accept]}|}{\\sum_{j=1}^{4}p_j} \\\\
     \\textrm{and} \\\\
     MAD_{m[oppose]} = \\sum_{i=6}^{9} \\frac{p_j \\cdot |i-\\mu_{m[oppose]}|}{\\sum_{j=6}^{9}p_j}$$",
-      input$metrics == "moderate_size_parity" ~ "$$\\textrm{Moderate size parity} = \\min \\lbrace \\frac{p_{m[accept]}}{p_{m[oppose]}}, \\frac{p_{m[oppose]}}{p_{m[accept]}} \\rbrace$$"
+      input$metrics == "moderate_size_parity" ~ "$$\\textrm{Moderate size parity} = \\min \\lbrace \\frac{p_{m[accept]}}{p_{m[oppose]}}, \\frac{p_{m[oppose]}}{p_{m[accept]}} \\rbrace$$",
+      input$metrics == "expl_var_pc1" ~ ""
     )
   }
 )
@@ -446,7 +467,7 @@ server <- function(input, output){
   
   output$plot_country_specific <- renderPlot({plot_generator_country_specific()})
   
-  output$mytable <- DT::renderDataTable(metrics_dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality : moderate_size_parity)) ,
+  output$mytable <- DT::renderDataTable(metrics_dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality:expl_var_pc1)) ,
                                         options = list(scrollX = TRUE),
                                         rownames = FALSE)
   
