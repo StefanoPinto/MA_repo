@@ -78,23 +78,15 @@ metrics_dataset <- metrics_dataset |> mutate(across(
 
 
 header <- dashboardHeader(
-  title = "Stefano MA (working title)",
-  titleWidth = 400,
-  dropdownMenu(type = "messages",
-               messageItem(
-                 from = "Stef",
-                 message = "To Do: PCA stuff"
-               )))
+  title = "ESS Opinion Polarization Exploratory Tool",
+  titleWidth = 500)
 
 sidebar <- dashboardSidebar(
   sidebarMenu(
     menuItem("Exploratory tools", tabName = "main_country",
              menuSubItem("Overview + trend", tabName = "main_charts"),
              menuSubItem("Ranking", tabName = "ranking"),
-             menuSubItem("Country-focus", tabName = "country_focus")),
-    
-    menuItem("Findings", tabName = "secondary",
-             menuSubItem("FINDING 1", tabName = "secondary_charts"))
+             menuSubItem("Country-focus", tabName = "country_focus"))
   )
 )
 
