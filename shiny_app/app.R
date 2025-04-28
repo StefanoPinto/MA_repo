@@ -333,8 +333,7 @@ server <- function(input, output){
       labs(
         x = "Year",
         y = glue("{clean_string(input$metrics)}"),
-        title = "Country-level values",
-        caption = "Note that if the explained variance of PC 1 is picked as metric, the values are perfectly overlapping. This make sense, as this metric is derived from all three variables in unison.") +
+        title = "Country-level values") +
       scale_color_brewer(palette = "Set1") 
     }
   )
@@ -356,8 +355,7 @@ server <- function(input, output){
       labs(
         x = "Year",
         y = glue("Mean {clean_string(input$metrics)}"),
-        title = "ESS-wide mean values",
-        caption = "Note that if the explained variance of PC 1 is picked as metric, the values are perfectly overlapping. This make sense, as this metric is derived from all three variables in unison.") +
+        title = "ESS-wide mean values") +
       scale_color_brewer(palette = "Set1")
   })
   
