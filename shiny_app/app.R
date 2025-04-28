@@ -6,6 +6,7 @@ library(glue)
 library(DT)
 library(naniar)
 library(countrycode)
+library(patchwork)
 
 #setwd("C:/Users/Stef/Desktop/Uni/CU/semester_4/ma/shiny_app/stef_ma")
 theme_set(theme_bw(base_size = 20))
@@ -59,6 +60,12 @@ weighted_ratios <- function(dataset, variable) {
   return(weighted_ratios)
 }
 
+mean_opinions <- original_data |> 
+  select(essround : imwbcnt) |> 
+  pivot_longer(cols = imbgeco : imwbcnt, names_to = "variable") |> 
+  group_by(essround, country, variable) |> 
+  summarize(mean_opinion = mean(value))
+
 
 metrics_dataset <- read_csv("metrics.csv")
 
@@ -71,10 +78,14 @@ metrics_dataset <- metrics_dataset |>
   left_join(pca_slope_dataset) |> 
   select(-c(loading_pc1_imbgeco, loading_pc1_imueclt, loading_pc1_imwbcnt))
 
+metrics_dataset <- metrics_dataset |> 
+  left_join(mean_opinions)
+
 
 metrics_dataset <- metrics_dataset |> mutate(across(
-  .cols = non_neutrality : slope_expl_var_pc1,
-  .fns = \(var) round(var, 4)))
+  .cols = non_neutrality : mean_opinion,
+  .fns = \(var) round(var, 3))) |> 
+  select(-slope_expl_var_pc1)
 
 
 header <- dashboardHeader(
@@ -202,7 +213,8 @@ body <- dashboardBody(
                 "moderate_divergence",
                 "moderate_group_consensus",
                 "moderate_size_parity",
-                "expl_var_pc1"),
+                "expl_var_pc1",
+                "mean_opinion"),
               multiple = FALSE,
               selected = "non_neutrality"),
             
@@ -264,7 +276,8 @@ server <- function(input, output){
       input$metrics == "moderate_divergence" ~ "**Moderate divergence**: Assessed by the absolute difference of group means of the moderate accepting group and the moderate opposing group, as described in Bramson et al. (2016). Lorenz (2017) analyzed the typical characteristics of ESS opinion distributions and pointed to the existence of five endogenous groups in ESS opinion distributions: The extreme left, the moderate left, the neutrals, the moderate right, and the extreme right. Per item, we operationalize similar groups, consisting of the 'full-on acceptors' (individuals with opinion 0), the 'moderate accepting group' (individuals with opinion 1-4), the 'neutrals' (individuals with opinion 5, the 'moderate opposing group' (individuals with opinion 6-9), and the 'full-on opponents' (individuals with opinion 10).",
       input$metrics == "moderate_group_consensus" ~ "**Moderate group conensus**: Based on the mean absolute deviation (MAD) of the two moderate groups. In contrast to dispersion, which we assess as MAD of the entire opinion distribution, the measurement of group consensus increases with decreasing dispersion in the two groups.",
       input$metrics == "moderate_size_parity" ~ "**Moderate size parity**: The relative size of the smaller group of moderates compared to the larger group. Hereby the mass of the smaller group is divided by the mass of the larger group. A size parity of 1 indicates equal size of moderate groups and thereby the maximum possible polarization in the sense of parity. This is a simplified version of the size parity measure proposed by Bramson et al. (2016).",
-      input$metrics == "expl_var_pc1" ~ "**Explained variance of PC1**: The explained variance of the first principal component derived from a Principal Component Analysis (PCA) using **imbgeco**, **imueclt** & **imwbcnt**"
+      input$metrics == "expl_var_pc1" ~ "**Explained variance of PC1**: The explained variance of the first principal component derived from a Principal Component Analysis (PCA) using **imbgeco**, **imueclt** & **imwbcnt**.",
+      input$metrics == "mean_opinion" ~ "**Mean opinion**: The numeric average opinion value on the Likert scale (0 - 10)."
     )
   }
 )
@@ -305,7 +318,7 @@ server <- function(input, output){
   plot_generator_countries <- reactive({
     metrics_dataset |> 
       pivot_longer(
-        cols = non_neutrality:expl_var_pc1,
+        cols = non_neutrality:mean_opinion,
         names_to = "metric_name",
         values_to = "metric_value") |> 
       filter(
@@ -329,7 +342,7 @@ server <- function(input, output){
   plot_generator_overview <- reactive({
     metrics_dataset |> 
       select(-country) |> 
-      pivot_longer(cols = non_neutrality:expl_var_pc1,
+      pivot_longer(cols = non_neutrality:mean_opinion,
                    names_to = "metric", values_to = "value") |>
       filter(
         metric == input$metrics,
@@ -356,7 +369,7 @@ server <- function(input, output){
         country == input$country_id_300,
         essround == input$year_id_300,
         variable == input$variable_id_300) |> 
-      select(non_neutrality : expl_var_pc1) |> 
+      select(non_neutrality : mean_opinion) |> 
       gather(metric, value) |> 
       mutate(scope = "country")
     
@@ -365,7 +378,7 @@ server <- function(input, output){
       filter(
         essround == input$year_id_300,
         variable == input$variable_id_300) |> 
-      select(non_neutrality : expl_var_pc1) |> 
+      select(non_neutrality : mean_opinion) |> 
       gather(metric, value) |> 
       group_by(metric) |> 
       summarize(value = mean(value, na.rm = T)) |> 
@@ -373,14 +386,12 @@ server <- function(input, output){
     
     merged_df <- bind_rows(country_df, europe_means) 
     
-    ggplot(merged_df, aes(metric, value)) +
+    p1 <- ggplot(merged_df |> filter(metric != "mean_opinion"), aes(metric, value)) +
       geom_col(aes(fill = scope), position = "dodge") +
       coord_flip() +
       labs(
         x = "",
-        y = "Value",
-        title = glue("{input$country_id_300} - {input$year_id_300} - {input$variable_id_300}"),
-        caption = "Note: If no country bars (green) are displayed, it means that for that particular year-country combination, no data is available\n Also, note that the value of the explained variance of PC1 does not change when the variable is changed. This make sense, as that value is derived from all three variables in unison.") +
+        y = "") +
       scale_x_discrete(labels = c(
         "Average deviation from neutrality",
         "Dispersion",
@@ -395,6 +406,19 @@ server <- function(input, output){
         plot.subtitle = element_text(hjust = 0.5)
       ) +
       scale_fill_brewer(palette = "Set2", "", labels = c("Country","Europe-wide average\n(for that year)"))
+    
+    
+    p2 <- ggplot(merged_df |> filter(metric == "mean_opinion"), aes(metric, value)) +
+      geom_col(aes(fill = scope), position = "dodge", width = 0.25) +
+      coord_flip() +
+      scale_fill_brewer(palette = "Set2", "", labels = c("Country","Europe-wide average\n(for that year)")) +
+      theme(legend.position = "none") +
+      labs(x = "", y = "") +
+      scale_x_discrete(labels = c("Mean opinion")) +
+      scale_y_continuous(breaks = 0:10)
+    
+    p1|p2
+    
   })
   
   
@@ -409,11 +433,10 @@ server <- function(input, output){
     ratios <- weighted_ratios(original_data_sub, !!sym(input$variable_id_300))
     df <- tibble(opinion_value = as.integer(names(ratios)), ratio = ratios)
     ggplot(df, aes(opinion_value, ratio)) +
-      geom_col(fill = "steelblue") +
+      geom_col(fill = "#66C2A5") +
       scale_x_continuous(breaks = 0:10) +
       scale_y_continuous(labels = scales::percent) + 
-      labs(x = "Likert-scale value", y = "",
-           caption = "Note: If no bars (steelblue) are displayed, it means that for that particular year-country combination, no data is available")
+      labs(x = "Likert-scale value", y = "")
     }
   )
   
@@ -441,7 +464,8 @@ server <- function(input, output){
     \\textrm{and} \\\\
     MAD_{m[oppose]} = \\sum_{i=6}^{9} \\frac{p_j \\cdot |i-\\mu_{m[oppose]}|}{\\sum_{j=6}^{9}p_j}$$",
       input$metrics == "moderate_size_parity" ~ "$$\\textrm{Moderate size parity} = \\min \\lbrace \\frac{p_{m[accept]}}{p_{m[oppose]}}, \\frac{p_{m[oppose]}}{p_{m[accept]}} \\rbrace$$",
-      input$metrics == "expl_var_pc1" ~ ""
+      input$metrics == "expl_var_pc1" ~ "",
+      input$metrics == "mean_opinion" ~ ""
     )
   }
 )
@@ -459,7 +483,7 @@ server <- function(input, output){
   
   output$plot_country_specific <- renderPlot({plot_generator_country_specific()})
   
-  output$mytable <- DT::renderDataTable(metrics_dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality:expl_var_pc1)) ,
+  output$mytable <- DT::renderDataTable(metrics_dataset |> filter(essround == input$Id088, variable == input$Id089) |> select(c(country, non_neutrality:mean_opinion)) ,
                                         options = list(scrollX = TRUE),
                                         rownames = FALSE)
   
