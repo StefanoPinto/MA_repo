@@ -552,7 +552,50 @@ get_loadings <- function(pca_obj) {
 get_loadings(pca_list[[1]])
 ```
 
+
 ```{r}
-# LOADINGS DF
+mean_anweights <- data |> 
+  select(anweight, cntry) |> 
+  #filter(cntry != "Russia") |> 
+  group_by(cntry) |> 
+  dplyr::summarize(mean_anweight = median(anweight))
+
 ```
+
+
+```{r}
+europe <- map_data("world") |> 
+  as_tibble() |> 
+  filter(region %in% mean_anweights$cntry) |> 
+  #filter(region != "Russia") |> 
+  rename(cntry = region) |> 
+  inner_join(mean_anweights) 
+
+centroids <- europe |> 
+  group_by(cntry) |> 
+  dplyr::summarize(mean_long = mean(long), mean_lat = mean(lat))
+```
+
+```{r}
+ggplot(europe, aes(long, lat)) +
+  geom_polygon(aes(group = group, fill = mean_anweight), col = "black") +
+  scale_fill_viridis_c(option = "viridis") +
+  theme_void() +
+  coord_cartesian() +
+  theme(legend.position = "bottom") +
+  geom_label_repel(data = centroids, aes(mean_long, mean_lat, label = cntry), size = 3) +
+  guides(
+    fill = guide_colorbar(
+      theme = theme(
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.key.width = unit(5, "cm")),
+      title = expression(Mean~italic(anweight)),
+      nbin = 10))
+  
+```
+
+
+
+
 
